@@ -132,10 +132,43 @@ def login_form() -> str:
 
 
 async def get_visible_birthdays() -> list[dict]:
-    contacts = await client(functions.contacts.GetContactsRequest(hash=0))
-    results = []
-    for user in getattr(contacts, "users", []):
-        birthday = getattr(user, "birthday", None)
+    """Load birthdays visible to this account from Telegram contact profiles.
+
+    The ordinary contacts.getContacts response does not reliably include the
+    birthday field. Telegram's full-user response does, when the birthday is
+    visible to the authenticated account. contacts.getBirthdays is also merged
+    as the official near-date refresh path.
+    """
+    contacts_result = await client(functions.contacts.GetContactsRequest(hash=0))
+    contacts = list(getattr(contacts_result, "users", []))
+    birthdays_by_id: dict[int, object] = {}
+
+    # This official method refreshes birthdays that fall within +/- one day.
+    # Its response includes a contact_id -> birthday mapping.
+    try:
+        near_birthdays = await client(functions.contacts.GetBirthdaysRequest())
+        birthdays_by_id.update({
+            item.contact_id: item.birthday
+            for item in getattr(near_birthdays, "contacts", [])
+            if getattr(item, "contact_id", None) and getattr(item, "birthday", None)
+        })
+        for user in getattr(near_birthdays, "users", []):
+            if getattr(user, "birthday", None):
+                birthdays_by_id[user.id] = user.birthday
+    except Exception:
+        # Full profiles below remain the primary path for the annual calendar.
+        pass
+
+    visible = []
+    for user in contacts:
+        birthday = birthdays_by_id.get(getattr(user, "id", None))
+        try:
+            full = await client(functions.users.GetFullUserRequest(id=user))
+            birthday = getattr(getattr(full, "full_user", None), "birthday", None) or birthday
+        except Exception:
+            # A single unavailable profile should not prevent other contacts
+            # from appearing in the calendar.
+            pass
         if not birthday or not getattr(birthday, "day", None) or not getattr(birthday, "month", None):
             continue
         name = " ".join(
@@ -143,13 +176,13 @@ async def get_visible_birthdays() -> list[dict]:
         )
         if not name:
             name = getattr(user, "username", None) or str(getattr(user, "id", "Telegram contact"))
-        results.append({
+        visible.append({
             "name": name,
             "day": birthday.day,
             "month": birthday.month,
             "year": getattr(birthday, "year", None),
         })
-    return results
+    return visible
 
 
 def birthdays_for_calendar(birthdays: list[dict], year: int) -> dict[tuple[int, int], list[dict]]:
