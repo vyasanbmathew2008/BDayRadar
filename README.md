@@ -8,15 +8,15 @@ You need Python 3.10 or newer and a Telegram `api_id` and `api_hash` from [my.te
 
 ## Setup
 
-The easiest option is to download and run the launcher. It automatically clones or fast-forwards the repository, creates the virtual environment, installs dependencies, creates `.env` on first run, and starts the website:
+The local launcher is intentionally not stored in GitHub. Keep `run.sh` inside your local `bdayradar` directory next to your existing `.env`, then run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vyasanbmathew2008/BDayRadar/main/run.sh -o run-bdayradar.sh
-chmod +x run-bdayradar.sh
-./run-bdayradar.sh
+cd /path/to/bdayradar
+chmod +x ./run.sh
+./run.sh
 ```
 
-On the first run, the launcher prompts for your Telegram `api_id` and `api_hash`. It saves them in a local `.env` file with restrictive permissions and does not overwrite an existing valid `.env`. You can run the same command again later to fetch GitHub updates and restart the app.
+The launcher pulls the latest repository update, prepares the virtual environment, installs dependencies, and starts the website. It requires `.env` to already exist and **never creates, overwrites, backs up, or edits it**. Your Telegram credentials therefore remain in your local directory only. You can run the same command again later to update the code and restart the app.
 
 If you prefer manual setup, create and activate a virtual environment, install dependencies, copy `.env.example` to `.env`, add your Telegram credentials, and run `python3 app.py`.
 
