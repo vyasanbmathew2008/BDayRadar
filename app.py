@@ -1,3 +1,4 @@
+import asyncio
 import calendar
 import os
 from contextlib import asynccontextmanager
@@ -24,6 +25,7 @@ if not API_ID or not API_HASH:
     raise RuntimeError("Set TELEGRAM_API_ID and TELEGRAM_API_HASH in .env before starting the app.")
 
 client = TelegramClient(SESSION_FILE, API_ID, API_HASH)
+CONNECT_TIMEOUT = float(os.environ.get("TELEGRAM_CONNECT_TIMEOUT", "15"))
 state = {
     "phone": None,
     "phone_code_hash": None,
@@ -35,12 +37,19 @@ state = {
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    await client.connect()
+    # Do not block Uvicorn startup on Telegram network connectivity. The first
+    # request connects with a bounded timeout and can show a useful error page.
     yield
-    await client.disconnect()
+    if client.is_connected():
+        await client.disconnect()
 
 
 app = FastAPI(title="BDayRadar", lifespan=lifespan)
+
+
+async def ensure_client_connected() -> None:
+    if not client.is_connected():
+        await asyncio.wait_for(client.connect(), timeout=CONNECT_TIMEOUT)
 
 
 def set_message(text: str, kind: str = "info") -> None:
@@ -256,6 +265,11 @@ def render_calendar(year: int, birthdays: list[dict]) -> str:
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
+    try:
+        await ensure_client_connected()
+    except Exception as exc:
+        error = f'<h2>Telegram connection unavailable</h2><div class="notice error">{escape(str(exc))}</div><p>Check your internet connection and Telegram API settings, then refresh this page.</p>'
+        return HTMLResponse(render_page(error), status_code=503)
     if not await client.is_user_authorized():
         return HTMLResponse(render_page(login_form()))
     year = selected_year(request)
@@ -271,6 +285,7 @@ async def home(request: Request):
 async def request_code(phone: str = Form(...)):
     phone = phone.strip()
     try:
+        await ensure_client_connected()
         sent = await client.send_code_request(phone)
         state.update({"phone": phone, "phone_code_hash": sent.phone_code_hash, "needs_2fa": False})
         set_message("Telegram sent a login code. Enter it below.", "success")
@@ -284,6 +299,11 @@ async def request_code(phone: str = Form(...)):
 
 @app.post("/auth/verify", response_class=HTMLResponse)
 async def verify(code: str = Form(...), password: str = Form("")):
+    try:
+        await ensure_client_connected()
+    except Exception as exc:
+        set_message(f"Telegram connection unavailable: {exc}", "error")
+        return RedirectResponse("/", status_code=303)
     if not state["phone"] or not state["phone_code_hash"]:
         set_message("Your login attempt expired. Start again.", "error")
         return RedirectResponse("/", status_code=303)
@@ -315,7 +335,11 @@ async def verify(code: str = Form(...), password: str = Form("")):
 
 @app.post("/logout")
 async def logout():
-    await client.log_out()
+    try:
+        await ensure_client_connected()
+        await client.log_out()
+    except Exception:
+        pass
     state.update({"phone": None, "phone_code_hash": None, "needs_2fa": False})
     set_message("You have been logged out. The local session file was invalidated by Telegram.", "success")
     return RedirectResponse("/", status_code=303)
@@ -324,4 +348,9 @@ async def logout():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("app:app", host="127.0.0.1", port=int(os.environ.get("PORT", "8000")), reload=False)
+    uvicorn.run(
+        "app:app",
+        host=os.environ.get("HOST", "127.0.0.1"),
+        port=int(os.environ.get("PORT", "8000")),
+        reload=False,
+    )
