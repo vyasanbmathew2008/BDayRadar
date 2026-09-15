@@ -1,4 +1,5 @@
 fastapi>=0.115
+requests
 uvicorn[standard]>=0.30
 telethon>=1.36
 python-dotenv>=1.0
