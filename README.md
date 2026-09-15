@@ -16,6 +16,7 @@ chmod +x ./run.sh
 ./run.sh
 ```
 
+
 The launcher pulls the latest repository update, prepares the virtual environment, installs dependencies, and starts the website. It requires `.env` to already exist and **never creates, overwrites, backs up, or edits it**. Your Telegram credentials therefore remain in your local directory only. You can run the same command again later to update the code and restart the app.
 
 If you prefer manual setup, create and activate a virtual environment, install dependencies, copy `.env.example` to `.env`, add your Telegram credentials, and run `python3 app.py`.
